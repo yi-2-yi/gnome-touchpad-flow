@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="touchpad-flow">
+  <schema id="org.gnome.shell.extensions.touchpad-flow"
+          path="/org/gnome/shell/extensions/touchpad-flow/">
+
+    <!-- ==================== Three-Finger Titlebar Window Drag ==================== -->
+    <key name="enable-titlebar-drag" type="b">
+      <default>true</default>
+      <summary>Enable three-finger titlebar window drag</summary>
+      <description>Move windows by dragging with three fingers when the pointer is over a window title bar.</description>
+    </key>
+
+    <key name="titlebar-height" type="i">
+      <default>48</default>
+      <range min="24" max="120"/>
+      <summary>Title bar hit-zone height (logical pixels)</summary>
+      <description>Height from the top edge of a window frame recognized as the draggable title bar.</description>
+    </key>
+
+    <key name="drag-anywhere" type="b">
+      <default>false</default>
+      <summary>Allow three-finger drag anywhere on a window</summary>
+      <description>When enabled, starting a three-finger gesture anywhere inside a window moves it instead of only on the title bar.</description>
+    </key>
+
+    <key name="drag-sensitivity" type="d">
+      <default>1.6</default>
+      <range min="0.4" max="5.0"/>
+      <summary>Window drag sensitivity multiplier</summary>
+      <description>Controls how fast the window moves relative to touchpad finger motion.</description>
+    </key>
+
+    <key name="drag-follow-pointer" type="b">
+      <default>true</default>
+      <summary>Move pointer along with dragged window</summary>
+      <description>Keeps the cursor anchored to the window title bar while dragging, matching macOS behavior.</description>
+    </key>
+
+    <key name="drag-edge-snap" type="b">
+      <default>true</default>
+      <summary>Snap window when dragged to screen edges</summary>
+      <description>Maximize when released at the top edge, or tile left/right when released at the left/right edges.</description>
+    </key>
+
+    <key name="drag-unmaximize-threshold" type="i">
+      <default>18</default>
+      <range min="5" max="80"/>
+      <summary>Unmaximize distance threshold (pixels)</summary>
+      <description>Distance in pixels required to unmaximize a maximized window when starting a three-finger drag.</description>
+    </key>
+
+    <!-- ==================== General Swipe Settings ==================== -->
+    <key name="enable-three-finger-swipe" type="b">
+      <default>true</default>
+      <summary>Enable customizable three-finger directional swipes</summary>
+    </key>
+
+    <key name="enable-four-finger-swipe" type="b">
+      <default>true</default>
+      <summary>Enable customizable four-finger directional swipes</summary>
+    </key>
+
+    <key name="swipe-threshold" type="i">
+      <default>55</default>
+      <range min="15" max="200"/>
+      <summary>Swipe activation threshold</summary>
+      <description>Accumulated gesture distance required before triggering a directional swipe action.</description>
+    </key>
+
+    <key name="invert-horizontal" type="b">
+      <default>false</default>
+      <summary>Invert horizontal swipe direction</summary>
+    </key>
+
+    <key name="invert-vertical" type="b">
+      <default>false</default>
+      <summary>Invert vertical swipe direction</summary>
+    </key>
+
+    <key name="show-osd-feedback" type="b">
+      <default>false</default>
+      <summary>Show brief OSD feedback when swipe actions trigger</summary>
+    </key>
+
+    <!-- ==================== Three-Finger Swipe Actions ==================== -->
+    <key name="swipe-3-up" type="s">
+      <default>'open-overview-or-apps'</default>
+      <summary>Action for 3-finger swipe up</summary>
+    </key>
+    <key name="swipe-3-up-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 3-finger swipe up</summary>
+    </key>
+
+    <key name="swipe-3-down" type="s">
+      <default>'close-overview-or-desktop'</default>
+      <summary>Action for 3-finger swipe down</summary>
+    </key>
+    <key name="swipe-3-down-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 3-finger swipe down</summary>
+    </key>
+
+    <key name="swipe-3-left" type="s">
+      <default>'workspace-next'</default>
+      <summary>Action for 3-finger swipe left</summary>
+    </key>
+    <key name="swipe-3-left-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 3-finger swipe left</summary>
+    </key>
+
+    <key name="swipe-3-right" type="s">
+      <default>'workspace-prev'</default>
+      <summary>Action for 3-finger swipe right</summary>
+    </key>
+    <key name="swipe-3-right-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 3-finger swipe right</summary>
+    </key>
+
+    <!-- ==================== Four-Finger Swipe Actions ==================== -->
+    <key name="swipe-4-up" type="s">
+      <default>'toggle-maximize'</default>
+      <summary>Action for 4-finger swipe up</summary>
+    </key>
+    <key name="swipe-4-up-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 4-finger swipe up</summary>
+    </key>
+
+    <key name="swipe-4-down" type="s">
+      <default>'minimize-window'</default>
+      <summary>Action for 4-finger swipe down</summary>
+    </key>
+    <key name="swipe-4-down-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 4-finger swipe down</summary>
+    </key>
+
+    <key name="swipe-4-left" type="s">
+      <default>'tile-left'</default>
+      <summary>Action for 4-finger swipe left</summary>
+    </key>
+    <key name="swipe-4-left-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 4-finger swipe left</summary>
+    </key>
+
+    <key name="swipe-4-right" type="s">
+      <default>'tile-right'</default>
+      <summary>Action for 4-finger swipe right</summary>
+    </key>
+    <key name="swipe-4-right-cmd" type="s">
+      <default>''</default>
+      <summary>Custom command for 4-finger swipe right</summary>
+    </key>
+
+  </schema>
+</schemalist>
