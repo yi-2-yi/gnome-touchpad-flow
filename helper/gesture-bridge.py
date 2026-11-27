@@ -371,7 +371,7 @@ def run_xinput24(check_only=False):
             devices_report = gesture_device_names or [f"XInput 2.4 (device {d})" for d in target_masters]
             emit({
                 "t": "ready",
-                "mode": "xinput-2.4 (免 sudo)",
+                "mode": "xinput-2.4",
                 "devices": devices_report,
             })
             sys.exit(0)
@@ -410,12 +410,13 @@ def run_xinput24(check_only=False):
         devices_report = gesture_device_names or [f"XInput 2.4 (device {d})" for d in grabbed_devices]
         emit({
             "t": "ready",
-            "mode": "xinput-2.4 (免 sudo)",
+            "mode": "xinput-2.4",
             "devices": devices_report,
         })
 
         xfd = libx11.XConnectionNumber(dpy)
         xev = XEvent()
+        active_fingers = 0
 
         try:
             while _running:
@@ -438,19 +439,26 @@ def run_xinput24(check_only=False):
                             gev = ctypes.cast(
                                 xev.xcookie.data, ctypes.POINTER(XIGestureSwipeEvent)
                             ).contents
-                            fingers = int(gev.detail)
-                            if fingers >= 3:
-                                if evtype == XI_GESTURE_SWIPE_BEGIN:
-                                    emit({"t": "swipe_begin", "f": fingers})
-                                elif evtype == XI_GESTURE_SWIPE_UPDATE:
+                            detail_fingers = int(gev.detail)
+                            if evtype == XI_GESTURE_SWIPE_BEGIN:
+                                active_fingers = detail_fingers
+                                if active_fingers >= 3:
+                                    emit({"t": "swipe_begin", "f": active_fingers})
+                            elif evtype == XI_GESTURE_SWIPE_UPDATE:
+                                fingers = detail_fingers if detail_fingers >= 3 else active_fingers
+                                if fingers >= 3:
                                     emit({
                                         "t": "swipe_update",
                                         "f": fingers,
                                         "dx": round(float(gev.delta_x), 3),
                                         "dy": round(float(gev.delta_y), 3),
                                     })
-                                elif evtype == XI_GESTURE_SWIPE_END:
+                            elif evtype == XI_GESTURE_SWIPE_END:
+                                fingers = detail_fingers if detail_fingers >= 3 else active_fingers
+                                active_fingers = 0
+                                if fingers >= 3:
                                     cancelled = bool(gev.flags & XI_GESTURE_SWIPE_EVENT_CANCELLED)
+                                    libx11.XFlush(dpy)
                                     emit({"t": "swipe_end", "f": fingers, "c": cancelled})
                     finally:
                         libx11.XFreeEventData(dpy, ctypes.byref(xev.xcookie))

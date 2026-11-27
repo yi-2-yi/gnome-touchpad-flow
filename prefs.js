@@ -5,56 +5,114 @@ import Gtk from 'gi://Gtk';
 
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import { DIRECTIONS, SWIPE_ACTIONS } from './lib/constants.js';
+import { DIRECTIONS, SWIPE_ACTION_IDS } from './lib/constants.js';
+import { getLocalizedErrorMessage, getTranslations, LANGUAGES } from './lib/i18n.js';
 
 export default class TouchpadFlowPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
-        window.set_default_size(680, 660);
+        window.set_default_size(680, 680);
 
-        this._buildDragPage(window, settings);
-        this._buildSwipePage(window, settings, 3, '三指手势', 'input-touchpad-symbolic');
-        this._buildSwipePage(window, settings, 4, '四指手势', 'preferences-desktop-gestures-symbolic');
+        const state = {
+            pages: [],
+            diagCancellable: null,
+        };
+
+        window.connect('close-request', () => {
+            if (state.diagCancellable) {
+                state.diagCancellable.cancel();
+                state.diagCancellable = null;
+            }
+            return false;
+        });
+
+        const rebuildPages = (preservePageIndex = 0) => {
+            if (state.diagCancellable) {
+                state.diagCancellable.cancel();
+                state.diagCancellable = null;
+            }
+
+            for (const oldPage of state.pages)
+                window.remove(oldPage);
+            state.pages = [];
+
+            const lang = settings.get_string('ui-language') || 'en';
+            const t = getTranslations(lang);
+
+            const dragPage = this._buildDragPage(window, settings, lang, t, state, () => {
+                rebuildPages(0);
+            });
+            const swipe3Page = this._buildSwipePage(settings, t, 3, t.page_swipe3, 'input-touchpad-symbolic');
+            const swipe4Page = this._buildSwipePage(settings, t, 4, t.page_swipe4, 'preferences-desktop-gestures-symbolic');
+
+            state.pages = [dragPage, swipe3Page, swipe4Page];
+            for (const p of state.pages)
+                window.add(p);
+
+            const targetPage = state.pages[preservePageIndex] ?? state.pages[0];
+            if (targetPage && typeof window.set_visible_page === 'function')
+                window.set_visible_page(targetPage);
+        };
+
+        rebuildPages(0);
     }
 
-    // ==================== Page 1: Titlebar Drag & Status ====================
+    // ==================== Page 1: Language, Status & Titlebar Drag ====================
 
-    _buildDragPage(window, settings) {
+    _buildDragPage(_window, settings, lang, t, state, onLanguageChanged) {
         const page = new Adw.PreferencesPage({
-            title: '标题栏拖拽',
+            title: t.page_drag,
             icon_name: 'window-maximize-symbolic',
         });
 
-        // Live environment status group
-        const statusGroup = new Adw.PreferencesGroup({
-            title: '运行状态（X11 XInput 2.4 / libinput 检测）',
-            description: '在 Debian 13 GNOME 48 (X11) 下优先使用免 sudo 的 XInput 2.4 协议读取触控板手势，无需 root 或 input 组权限。',
+        // Language & Live status group
+        const generalGroup = new Adw.PreferencesGroup({
+            title: t.group_general,
+            description: t.group_general_desc,
         });
-        const statusRow = new Adw.ActionRow({
-            title: '正在检测触控板后端...',
-            subtitle: '请稍候',
-        });
-        statusGroup.add(statusRow);
-        page.add(statusGroup);
 
-        this._runDiagnostics(window, statusRow);
+        const langIds = LANGUAGES.map(item => item.id);
+        const langLabels = LANGUAGES.map(item => item.label);
+        const langRow = new Adw.ComboRow({
+            title: t.row_language,
+            subtitle: t.row_language_sub,
+            model: Gtk.StringList.new(langLabels),
+        });
+        langRow.set_selected(Math.max(0, langIds.indexOf(lang)));
+        langRow.connect('notify::selected', () => {
+            const newLang = langIds[langRow.get_selected()] ?? 'en';
+            if (newLang !== settings.get_string('ui-language')) {
+                settings.set_string('ui-language', newLang);
+                onLanguageChanged();
+            }
+        });
+        generalGroup.add(langRow);
+
+        const statusRow = new Adw.ActionRow({
+            title: t.status_checking_title,
+            subtitle: t.status_checking_sub,
+        });
+        generalGroup.add(statusRow);
+        page.add(generalGroup);
+
+        this._runDiagnostics(statusRow, lang, t, state);
 
         // Main drag settings group
         const dragGroup = new Adw.PreferencesGroup({
-            title: 'macOS 风格三指拖拽窗口',
-            description: '将光标停留在窗口标题栏上，三指按触并移动即可平滑拖拽窗口，无需按压触控板。',
+            title: t.group_drag,
+            description: t.group_drag_desc,
         });
 
         const enableDragRow = new Adw.SwitchRow({
-            title: '启用三指标题栏拖拽窗口',
-            subtitle: '在窗口标题栏区域使用三指滑动直接移动窗口',
+            title: t.row_enable_drag,
+            subtitle: t.row_enable_drag_sub,
         });
         settings.bind('enable-titlebar-drag', enableDragRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         dragGroup.add(enableDragRow);
 
         const titlebarHeightRow = new Adw.SpinRow({
-            title: '标题栏识别高度（逻辑像素）',
-            subtitle: '从窗口顶部向下识别为标题栏的区域高度（默认 48px，兼容 GTK/Qt/Chrome/VS Code）',
+            title: t.row_titlebar_height,
+            subtitle: t.row_titlebar_height_sub,
             adjustment: new Gtk.Adjustment({
                 lower: 24,
                 upper: 120,
@@ -66,8 +124,8 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
         dragGroup.add(titlebarHeightRow);
 
         const sensitivityRow = new Adw.SpinRow({
-            title: '拖拽移动灵敏度倍率',
-            subtitle: '数值越大，手指移动相同距离时窗口移动越快',
+            title: t.row_drag_sensitivity,
+            subtitle: t.row_drag_sensitivity_sub,
             digits: 2,
             adjustment: new Gtk.Adjustment({
                 lower: 0.4,
@@ -80,22 +138,22 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
         dragGroup.add(sensitivityRow);
 
         const followPointerRow = new Adw.SwitchRow({
-            title: '拖拽时光标跟随窗口移动',
-            subtitle: '与 macOS 一致：松手后光标保持在标题栏上',
+            title: t.row_follow_pointer,
+            subtitle: t.row_follow_pointer_sub,
         });
         settings.bind('drag-follow-pointer', followPointerRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         dragGroup.add(followPointerRow);
 
         const edgeSnapRow = new Adw.SwitchRow({
-            title: '边缘松手自动贴边 / 最大化',
-            subtitle: '拖至屏幕顶部松手最大化，拖至左/右边缘松手半屏平铺',
+            title: t.row_edge_snap,
+            subtitle: t.row_edge_snap_sub,
         });
         settings.bind('drag-edge-snap', edgeSnapRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         dragGroup.add(edgeSnapRow);
 
         const unmaxThresholdRow = new Adw.SpinRow({
-            title: '最大化窗口拖离阈值（像素）',
-            subtitle: '对最大化窗口标题栏三指拖拽超过此距离时自动还原并跟随移动',
+            title: t.row_unmax_threshold,
+            subtitle: t.row_unmax_threshold_sub,
             adjustment: new Gtk.Adjustment({
                 lower: 5,
                 upper: 80,
@@ -107,42 +165,40 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
         dragGroup.add(unmaxThresholdRow);
 
         const dragAnywhereRow = new Adw.SwitchRow({
-            title: '允许在窗口任意位置三指拖拽（高级）',
-            subtitle: '开启后在窗口内容区三指滑动也会拖拽窗口，不再触发三指方向手势',
+            title: t.row_drag_anywhere,
+            subtitle: t.row_drag_anywhere_sub,
         });
         settings.bind('drag-anywhere', dragAnywhereRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         dragGroup.add(dragAnywhereRow);
 
         page.add(dragGroup);
-        window.add(page);
+        return page;
     }
 
     // ==================== Pages 2 & 3: 3-Finger & 4-Finger Swipes ====================
 
-    _buildSwipePage(window, settings, fingers, title, iconName) {
+    _buildSwipePage(settings, t, fingers, title, iconName) {
         const page = new Adw.PreferencesPage({
             title,
             icon_name: iconName,
         });
 
         const generalGroup = new Adw.PreferencesGroup({
-            title: `${fingers}指方向滑动总开关`,
-            description: fingers === 3
-                ? '当光标不在窗口标题栏（或处于桌面/概览）时，三指往不同方向滑动将触发以下动作。'
-                : '四指往不同方向滑动将触发以下自定义动作（与三指标题栏拖拽互不冲突）。',
+            title: t.group_swipe_general(fingers),
+            description: fingers === 3 ? t.group_swipe3_desc : t.group_swipe4_desc,
         });
 
         const enableKey = fingers === 3 ? 'enable-three-finger-swipe' : 'enable-four-finger-swipe';
         const enableRow = new Adw.SwitchRow({
-            title: `启用${fingers}指方向滑动手势`,
+            title: t.row_enable_swipe(fingers),
         });
         settings.bind(enableKey, enableRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         generalGroup.add(enableRow);
 
         if (fingers === 3) {
             const thresholdRow = new Adw.SpinRow({
-                title: '滑动触发距离阈值',
-                subtitle: '数值越小越灵敏，数值越大越防误触（默认 55）',
+                title: t.row_swipe_threshold,
+                subtitle: t.row_swipe_threshold_sub,
                 adjustment: new Gtk.Adjustment({
                     lower: 15,
                     upper: 200,
@@ -154,22 +210,22 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
             generalGroup.add(thresholdRow);
 
             const invertHRow = new Adw.SwitchRow({
-                title: '反转水平滑动方向',
-                subtitle: '切换左右滑动的方向映射（自然方向 / 传统方向）',
+                title: t.row_invert_h,
+                subtitle: t.row_invert_h_sub,
             });
             settings.bind('invert-horizontal', invertHRow, 'active', Gio.SettingsBindFlags.DEFAULT);
             generalGroup.add(invertHRow);
 
             const invertVRow = new Adw.SwitchRow({
-                title: '反转垂直滑动方向',
-                subtitle: '切换上下滑动的方向映射',
+                title: t.row_invert_v,
+                subtitle: t.row_invert_v_sub,
             });
             settings.bind('invert-vertical', invertVRow, 'active', Gio.SettingsBindFlags.DEFAULT);
             generalGroup.add(invertVRow);
 
             const osdRow = new Adw.SwitchRow({
-                title: '触发手势时显示屏幕提示 (OSD)',
-                subtitle: '每次触发滑动动作时在屏幕下方短暂显示动作名称',
+                title: t.row_osd,
+                subtitle: t.row_osd_sub,
             });
             settings.bind('show-osd-feedback', osdRow, 'active', Gio.SettingsBindFlags.DEFAULT);
             generalGroup.add(osdRow);
@@ -179,28 +235,28 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
 
         // Direction mappings group
         const dirGroup = new Adw.PreferencesGroup({
-            title: `${fingers}指各方向动作映射`,
-            description: '为上、下、左、右四个方向分别选择动作；选择“自定义 Shell 命令”后可填写任意终端命令。',
+            title: t.group_swipe_dirs(fingers),
+            description: t.group_swipe_dirs_desc,
         });
 
-        const actionIds = SWIPE_ACTIONS.map(a => a.id);
-        const actionLabels = SWIPE_ACTIONS.map(a => a.label);
+        const actionLabels = SWIPE_ACTION_IDS.map(id => t.actions[id] ?? id);
 
         for (const dir of DIRECTIONS) {
             const key = `swipe-${fingers}-${dir.key}`;
             const cmdKey = `${key}-cmd`;
+            const dirLabel = t[dir.labelKey];
 
             const comboRow = new Adw.ComboRow({
-                title: `${fingers}指${dir.label}`,
+                title: t.row_dir_title(fingers, dirLabel),
                 model: Gtk.StringList.new(actionLabels),
             });
 
             const currentAction = settings.get_string(key);
-            const initialIdx = Math.max(0, actionIds.indexOf(currentAction));
+            const initialIdx = Math.max(0, SWIPE_ACTION_IDS.indexOf(currentAction));
             comboRow.set_selected(initialIdx);
 
             const cmdRow = new Adw.EntryRow({
-                title: `${fingers}指${dir.label} · 自定义命令`,
+                title: t.row_cmd_title(fingers, dirLabel),
                 show_apply_button: true,
                 visible: currentAction === 'custom-command',
             });
@@ -214,7 +270,7 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
 
             comboRow.connect('notify::selected', () => {
                 const idx = comboRow.get_selected();
-                const selectedId = actionIds[idx] ?? 'none';
+                const selectedId = SWIPE_ACTION_IDS[idx] ?? 'none';
                 settings.set_string(key, selectedId);
                 cmdRow.set_visible(selectedId === 'custom-command');
             });
@@ -224,25 +280,22 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
         }
 
         page.add(dirGroup);
-        window.add(page);
+        return page;
     }
 
     // ==================== Diagnostics Helper ====================
 
-    _runDiagnostics(window, statusRow) {
+    _runDiagnostics(statusRow, lang, t, state) {
         const sessionType = GLib.getenv('XDG_SESSION_TYPE') || 'unknown';
         if (sessionType === 'wayland') {
-            statusRow.set_title('Wayland 原生手势模式已就绪');
-            statusRow.set_subtitle('当前会话为 Wayland，将直接通过 GNOME Clutter 接收触控板手势。');
+            statusRow.set_title(t.status_wayland_title);
+            statusRow.set_subtitle(t.status_wayland_sub);
             return;
         }
 
         const helperPath = this.dir.get_child('helper').get_child('gesture-bridge.py').get_path();
         const cancellable = new Gio.Cancellable();
-        window.connect('close-request', () => {
-            cancellable.cancel();
-            return false;
-        });
+        state.diagCancellable = cancellable;
 
         try {
             const proc = new Gio.Subprocess({
@@ -260,25 +313,25 @@ export default class TouchpadFlowPreferences extends ExtensionPreferences {
                     const info = firstLine ? JSON.parse(firstLine) : null;
 
                     if (info?.t === 'ready') {
-                        const devs = (info.devices || []).join('、');
-                        statusRow.set_title(`X11 后端运行正常（${info.mode}）`);
-                        statusRow.set_subtitle(`已识别触控板：${devs || '已就绪'}`);
-                    } else if (info?.msg) {
-                        statusRow.set_title(`需要配置（${info.code || 'ERROR'}）`);
-                        statusRow.set_subtitle(info.msg);
+                        const devs = (info.devices || []).join(', ') || t.status_ready_fallback_dev;
+                        statusRow.set_title(t.status_ready_title(info.mode));
+                        statusRow.set_subtitle(t.status_ready_sub(devs));
+                    } else if (info?.code || info?.msg) {
+                        statusRow.set_title(t.status_error_title(info.code || 'ERROR'));
+                        statusRow.set_subtitle(getLocalizedErrorMessage(lang, info.code, info.msg));
                     } else {
-                        statusRow.set_title('无法确认触控板状态');
-                        statusRow.set_subtitle('请确认当前用户已加入 input 组并重新登录。');
+                        statusRow.set_title(t.status_unknown_title);
+                        statusRow.set_subtitle(t.status_unknown_sub);
                     }
                 } catch (err) {
                     if (!cancellable.is_cancelled()) {
-                        statusRow.set_title('检测失败');
+                        statusRow.set_title(t.status_failed_title);
                         statusRow.set_subtitle(err.message);
                     }
                 }
             });
         } catch (err) {
-            statusRow.set_title('无法执行检测脚本');
+            statusRow.set_title(t.status_spawn_failed_title);
             statusRow.set_subtitle(err.message);
         }
     }

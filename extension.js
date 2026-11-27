@@ -1,8 +1,11 @@
+import GLib from 'gi://GLib';
+
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { ActionRunner } from './lib/actionRunner.js';
 import { GestureBackend } from './lib/gestureBackend.js';
+import { getLocalizedErrorMessage, getTranslations } from './lib/i18n.js';
 import { WindowDragger } from './lib/windowDragger.js';
 
 export default class TouchpadFlowExtension extends Extension {
@@ -13,8 +16,9 @@ export default class TouchpadFlowExtension extends Extension {
 
         this._accumX = 0;
         this._accumY = 0;
-        this._swipeTriggered = false;
+        this._activeFingers = 0;
         this._activeMode = 'none'; // 'none' | 'drag' | 'swipe'
+        this._pendingActionTimeoutId = 0;
         this._notifiedError = false;
 
         this._backend = new GestureBackend(this.dir, {
@@ -27,6 +31,8 @@ export default class TouchpadFlowExtension extends Extension {
     }
 
     disable() {
+        this._cancelPendingAction();
+
         if (this._backend) {
             this._backend.destroy();
             this._backend = null;
@@ -46,8 +52,15 @@ export default class TouchpadFlowExtension extends Extension {
     _resetGestureState() {
         this._accumX = 0;
         this._accumY = 0;
-        this._swipeTriggered = false;
+        this._activeFingers = 0;
         this._activeMode = 'none';
+    }
+
+    _cancelPendingAction() {
+        if (this._pendingActionTimeoutId) {
+            GLib.Source.remove(this._pendingActionTimeoutId);
+            this._pendingActionTimeoutId = 0;
+        }
     }
 
     _onSwipeBegin(fingers) {
@@ -55,6 +68,8 @@ export default class TouchpadFlowExtension extends Extension {
 
         if (!this._settings || Main.sessionMode.isLocked)
             return false;
+
+        this._activeFingers = fingers;
 
         // 1. Priority: Three-finger drag on a window title bar (macOS style)
         if (fingers === 3 && this._dragger.tryBeginDrag()) {
@@ -76,7 +91,7 @@ export default class TouchpadFlowExtension extends Extension {
         return false;
     }
 
-    _onSwipeUpdate(fingers, dx, dy) {
+    _onSwipeUpdate(_fingers, dx, dy) {
         if (!this._settings)
             return;
 
@@ -85,44 +100,69 @@ export default class TouchpadFlowExtension extends Extension {
             return;
         }
 
-        if (this._activeMode !== 'swipe' || this._swipeTriggered)
+        if (this._activeMode !== 'swipe')
             return;
 
-        if (fingers !== 3 && fingers !== 4)
-            return;
-
+        // Accumulate full swipe delta; action fires on swipe_end AFTER X11 releases
+        // the active XIGrabSwipeGestureBegin grab (required so Main.overview.show()
+        // and other modal GNOME actions do not collide with AlreadyGrabbed).
         this._accumX += dx;
         this._accumY += dy;
+    }
 
-        const threshold = this._settings.get_int('swipe-threshold');
-        if (Math.hypot(this._accumX, this._accumY) < threshold)
+    _onSwipeEnd(fingers, cancelled) {
+        const mode = this._activeMode;
+        const effectiveFingers = fingers >= 3 ? fingers : this._activeFingers;
+        const totalX = this._accumX;
+        const totalY = this._accumY;
+
+        this._resetGestureState();
+
+        if (mode === 'drag') {
+            this._dragger?.endDrag(cancelled);
+            return;
+        }
+
+        if (mode !== 'swipe' || cancelled || !this._settings)
             return;
 
-        this._swipeTriggered = true;
+        if (effectiveFingers !== 3 && effectiveFingers !== 4)
+            return;
+
+        const threshold = this._settings.get_int('swipe-threshold');
+        if (Math.hypot(totalX, totalY) < threshold)
+            return;
 
         let dir;
-        if (Math.abs(this._accumX) >= Math.abs(this._accumY)) {
+        if (Math.abs(totalX) >= Math.abs(totalY)) {
             const invertH = this._settings.get_boolean('invert-horizontal');
-            const movingRight = this._accumX > 0;
+            const movingRight = totalX > 0;
             dir = (movingRight !== invertH) ? 'right' : 'left';
         } else {
             const invertV = this._settings.get_boolean('invert-vertical');
-            const movingDown = this._accumY > 0;
+            const movingDown = totalY > 0;
             dir = (movingDown !== invertV) ? 'down' : 'up';
         }
 
-        const keyPrefix = `swipe-${fingers}-${dir}`;
+        const keyPrefix = `swipe-${effectiveFingers}-${dir}`;
         const actionId = this._settings.get_string(keyPrefix);
         const customCmd = this._settings.get_string(`${keyPrefix}-cmd`);
 
-        this._actions.run(actionId, customCmd);
-    }
+        if (!actionId || actionId === 'none')
+            return;
 
-    _onSwipeEnd(_fingers, cancelled) {
-        if (this._activeMode === 'drag')
-            this._dragger?.endDrag(cancelled);
+        console.log(
+            `[TouchpadFlow] Swipe ${effectiveFingers}f ${dir} (dx=${totalX.toFixed(1)}, dy=${totalY.toFixed(1)}) -> ${actionId}`
+        );
 
-        this._resetGestureState();
+        // Defer briefly (20ms) so Xorg finishes releasing the passive swipe grab before
+        // modal GNOME actions (Overview, App Grid, Screenshot UI) call Main.pushModal().
+        this._cancelPendingAction();
+        this._pendingActionTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
+            this._pendingActionTimeoutId = 0;
+            this._actions?.run(actionId, customCmd);
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _onBackendStatus(status) {
@@ -136,10 +176,13 @@ export default class TouchpadFlowExtension extends Extension {
             console.warn(`[TouchpadFlow] ${status.code}: ${status.msg}`);
         } else if (status.t === 'error') {
             console.error(`[TouchpadFlow] ${status.code}: ${status.msg}`);
-            if (!this._notifiedError) {
+            if (!this._notifiedError && this._settings) {
                 this._notifiedError = true;
+                const lang = this._settings.get_string('ui-language');
+                const t = getTranslations(lang);
+                const msg = getLocalizedErrorMessage(lang, status.code, status.msg);
                 try {
-                    Main.notify('Touchpad Flow 触控板手势', status.msg);
+                    Main.notify(t.notif_title, msg);
                 } catch {
                     // Ignore if notification tray isn't ready
                 }

@@ -3,6 +3,13 @@
   <schema id="org.gnome.shell.extensions.touchpad-flow"
           path="/org/gnome/shell/extensions/touchpad-flow/">
 
+    <!-- ==================== UI Language ==================== -->
+    <key name="ui-language" type="s">
+      <default>'en'</default>
+      <summary>Preferences and notification language</summary>
+      <description>Language code for the preferences UI and feedback ('en', 'zh', 'fr').</description>
+    </key>
+
     <!-- ==================== Three-Finger Titlebar Window Drag ==================== -->
     <key name="enable-titlebar-drag" type="b">
       <default>true</default>
@@ -61,7 +68,7 @@
     </key>
 
     <key name="swipe-threshold" type="i">
-      <default>55</default>
+      <default>35</default>
       <range min="15" max="200"/>
       <summary>Swipe activation threshold</summary>
       <description>Accumulated gesture distance required before triggering a directional swipe action.</description>

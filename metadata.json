@@ -1,13 +1,12 @@
 {
   "uuid": "touchpad-flow@local",
   "name": "Touchpad Flow (X11 / Wayland)",
-  "description": "macOS 风格三指标题栏拖拽窗口 + 可定制三指/四指方向触控板手势，专为 Debian 13 GNOME 48 (X11) 优化，同时兼容 Wayland。",
+  "description": "macOS-style 3-finger titlebar window drag and customizable 3/4-finger touchpad swipe gestures for GNOME 48+ (zero-sudo XInput 2.4 on X11, native on Wayland).",
   "shell-version": [
-    "46",
-    "47",
     "48",
-    "49"
+    "49",
+    "50"
   ],
-  "version": 1,
+  "version": 2,
   "settings-schema": "org.gnome.shell.extensions.touchpad-flow"
 }
